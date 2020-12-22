@@ -20,9 +20,10 @@ func (b *Block) HashTransactions() []byte {
 	var txHash [32]byte
 
 	for _, tx := range b.Transactions {
-		txHashes = append(txHashes, tx.ID)
+		txHashes = append(txHashes, tx.Hash())
 	}
 	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
+
 	return txHash[:]
 }
 
@@ -54,6 +55,7 @@ func (b *Block) Serialize() []byte {
 
 func Deserialize(data []byte) *Block {
 	var block Block
+
 	decoder := gob.NewDecoder(bytes.NewReader(data))
 
 	err := decoder.Decode(&block)
