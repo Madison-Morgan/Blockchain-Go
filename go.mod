@@ -10,4 +10,5 @@ require (
 	github.com/mr-tron/base58 v1.2.0
 	github.com/pkg/errors v0.8.0 // indirect
 	golang.org/x/crypto v0.0.0-20201208171446-5f87f3452ae9
+	gopkg.in/vrecan/death.v3 v3.0.1 // indirect
 )
