@@ -20,17 +20,17 @@ import (
 )
 
 const (
-	protocol ="tcp"
-	version = 1
+	protocol      = "tcp"
+	version       = 1
 	commandLength = 12
 )
 
-var(
-	nodeAddress string
-	minerAddress string
-	KnownNodes = []string{"localhost:3000"}
+var (
+	nodeAddress     string
+	mineAddress     string
+	KnownNodes      = []string{"localhost:3000"}
 	blocksInTransit = [][]byte{}
-	memoryPool = make(map[string]blockchain.Transaction)
+	memoryPool      = make(map[string]blockchain.Transaction)
 )
 
 type Addr struct {
@@ -39,7 +39,7 @@ type Addr struct {
 
 type Block struct {
 	AddrFrom string
-	Block []byte
+	Block    []byte
 }
 
 type GetBlocks struct {
@@ -48,25 +48,25 @@ type GetBlocks struct {
 
 type GetData struct {
 	AddrFrom string
-	Type string
-	ID []byte
+	Type     string
+	ID       []byte
 }
 
 type Inv struct {
 	AddrFrom string
-	Type string
-	Items [][]byte
+	Type     string
+	Items    [][]byte
 }
 
 type Tx struct {
-	AddrFrom string
+	AddrFrom    string
 	Transaction []byte
 }
 
 type Version struct {
-	Version int
+	Version    int
 	BestHeight int
-	AddrFrom string
+	AddrFrom   string
 }
 
 func CmdToBytes(cmd string) []byte {
@@ -75,6 +75,7 @@ func CmdToBytes(cmd string) []byte {
 	for i, c := range cmd {
 		bytes[i] = byte(c)
 	}
+
 	return bytes[:]
 }
 
@@ -117,6 +118,32 @@ func SendBlock(addr string, b *blockchain.Block) {
 	SendData(addr, request)
 }
 
+func SendData(addr string, data []byte) {
+	conn, err := net.Dial(protocol, addr)
+
+	if err != nil {
+		fmt.Printf("%s is not available\n", addr)
+		var updatedNodes []string
+
+		for _, node := range KnownNodes {
+			if node != addr {
+				updatedNodes = append(updatedNodes, node)
+			}
+		}
+
+		KnownNodes = updatedNodes
+
+		return
+	}
+
+	defer conn.Close()
+
+	_, err = io.Copy(conn, bytes.NewReader(data))
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
 func SendInv(address, kind string, items [][]byte) {
 	inventory := Inv{nodeAddress, kind, items}
 	payload := GobEncode(inventory)
@@ -154,52 +181,6 @@ func SendVersion(addr string, chain *blockchain.BlockChain) {
 	request := append(CmdToBytes("version"), payload...)
 
 	SendData(addr, request)
-}
-
-func SendData(addr string, data []byte) {
-	conn, err := net.Dial(protocol, addr)
-
-	if err != nil {
-		fmt.Printf("%s is not available\n", addr)
-		var updatedNodes []string
-		for _, node := range KnownNodes {
-			if node != addr {
-				updatedNodes = append(updatedNodes, node)
-			}
-		}
-		
-		KnownNodes = updatedNodes
-		return
-	}
-
-	defer conn.Close()
-
-	_, err = io.Copy(conn, bytes.NewReader(data))
-	if err != nil {
-		log.Panic(err)
-	}
-}
-
-func GobEncode(data interface{}) []byte {
-	var buff bytes.Buffer
-
-	enc := gob.NewEncoder(&buff)
-	err := enc.Encode(data)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	return buff.Bytes()
-}
-
-func NodeIsKnown(addr string) bool {
-	for _, node := range KnownNodes {
-		if node == addr {
-			return true
-		}
-	}
-
-	return false
 }
 
 func HandleAddr(request []byte) {
@@ -359,63 +340,6 @@ func HandleTx(request []byte, chain *blockchain.BlockChain) {
 	}
 }
 
-func HandleVersion(request []byte, chain *blockchain.BlockChain) {
-	var buff bytes.Buffer
-	var payload Version
-
-	buff.Write(request[commandLength:])
-	dec := gob.NewDecoder(&buff)
-	err := dec.Decode(&payload)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	bestHeight := chain.GetBestHeight()
-	otherHeight := payload.BestHeight
-
-	if bestHeight < otherHeight {
-		SendGetBlocks(payload.AddrFrom)
-	} else if bestHeight > otherHeight {
-		SendVersion(payload.AddrFrom, chain)
-	}
-
-	if !NodeIsKnown(payload.AddrFrom) {
-		KnownNodes = append(KnownNodes, payload.AddrFrom)
-	}
-}
-
-
-func HandleConnection(conn net.Conn, chain *blockchain.BlockChain) {
-	req, err := ioutil.ReadAll(conn)
-	defer conn.Close()
-	
-	if err != nil {
-		log.Panic(err)
-	}
-	command := BytesToCmd(req[:commandLength])
-	fmt.Printf("Received %s command\n", command)
-
-	switch command {
-	case "addr":
-		HandleAddr(req)
-	case "block":
-		HandleBlock(req, chain)
-	case "inv":
-		HandleInv(req, chain)
-	case "getblocks":
-		HandleGetBlocks(req, chain)
-	case "getdata":
-		HandleGetData(req, chain)
-	case "tx":
-		HandleTx(req, chain)
-	case "version":
-		HandleVersion(req, chain)
-	default:
-		fmt.Println("Unknown command")
-	}
-
-}
-
 func MineTx(chain *blockchain.BlockChain) {
 	var txs []*blockchain.Transaction
 
@@ -457,6 +381,62 @@ func MineTx(chain *blockchain.BlockChain) {
 	}
 }
 
+func HandleVersion(request []byte, chain *blockchain.BlockChain) {
+	var buff bytes.Buffer
+	var payload Version
+
+	buff.Write(request[commandLength:])
+	dec := gob.NewDecoder(&buff)
+	err := dec.Decode(&payload)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	bestHeight := chain.GetBestHeight()
+	otherHeight := payload.BestHeight
+
+	if bestHeight < otherHeight {
+		SendGetBlocks(payload.AddrFrom)
+	} else if bestHeight > otherHeight {
+		SendVersion(payload.AddrFrom, chain)
+	}
+
+	if !NodeIsKnown(payload.AddrFrom) {
+		KnownNodes = append(KnownNodes, payload.AddrFrom)
+	}
+}
+
+func HandleConnection(conn net.Conn, chain *blockchain.BlockChain) {
+	req, err := ioutil.ReadAll(conn)
+	defer conn.Close()
+	
+	if err != nil {
+		log.Panic(err)
+	}
+	command := BytesToCmd(req[:commandLength])
+	fmt.Printf("Received %s command\n", command)
+
+	switch command {
+	case "addr":
+		HandleAddr(req)
+	case "block":
+		HandleBlock(req, chain)
+	case "inv":
+		HandleInv(req, chain)
+	case "getblocks":
+		HandleGetBlocks(req, chain)
+	case "getdata":
+		HandleGetData(req, chain)
+	case "tx":
+		HandleTx(req, chain)
+	case "version":
+		HandleVersion(req, chain)
+	default:
+		fmt.Println("Unknown command")
+	}
+
+}
+
 func StartServer(nodeID, minerAddress string) {
 	nodeAddress = fmt.Sprintf("localhost:%s", nodeID)
 	mineAddress = minerAddress
@@ -483,7 +463,27 @@ func StartServer(nodeID, minerAddress string) {
 	}
 }
 
+func GobEncode(data interface{}) []byte {
+	var buff bytes.Buffer
 
+	enc := gob.NewEncoder(&buff)
+	err := enc.Encode(data)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return buff.Bytes()
+}
+
+func NodeIsKnown(addr string) bool {
+	for _, node := range KnownNodes {
+		if node == addr {
+			return true
+		}
+	}
+
+	return false
+}
 
 func CloseDB(chain *blockchain.BlockChain) {
 	d := death.NewDeath(syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
@@ -494,5 +494,3 @@ func CloseDB(chain *blockchain.BlockChain) {
 		chain.Database.Close()
 	})
 }
-
-
